@@ -1,6 +1,8 @@
 ###############
 ###### TRANSLATION FROM BD REPOSITORY
 ###############
+#!/usr/bin/env python3
+"""
 v1_linker1 = 'ACTGGCCTGCGA'
 v1_linker2 = 'GGTAGCGGTGACA'
 
@@ -185,135 +187,161 @@ B384_cell_key3 = ("TTGTGGCTG","TTGTGGAGT","TTGTGCGAC","TTGTCTTCA","TTGTAAGAT","T
                   "ACACCAGTA","ACACCAACT","ACACATAGT","ACACACCTA"
                   )
 
+"""
+
+
+import os
+import argparse
+import difflib
+import pandas as pd
+
 
 def label_sections_to_index(label):
-    """ 
-    Return the cell_index integer based on input 3 part cell label string
-    
     """
+    Convert a 3-part cell label into a single index.
+    
+    Args:
+        label (str): A string in the format "part1-part2-part3".
 
-    cl1, cl2, cl3 = [int(n) for n in label.split('-')]
-    return (cl1 - 1) * 384 * 384 + (cl2 - 1) * 384 + (cl3 - 1) + 1
+    Returns:
+        int: The calculated index.
+    """
+    try:
+        cl1, cl2, cl3 = [int(n) for n in label.split('-')]
+        return (cl1 - 1) * 384 * 384 + (cl2 - 1) * 384 + (cl3 - 1) + 1
+    except ValueError:
+        raise ValueError(f"Invalid label format: {label}. Expected 'part1-part2-part3'.")
 
-
-
-
-#### 07 - 08 - 2024
-#### Joel Moro Borrego
-
-import re
-import pandas as pd
-import difflib
 
 def similarity_percentage(str1, str2):
-    # Create a SequenceMatcher object
+    """
+    Calculate the similarity percentage between two strings.
+
+    Args:
+        str1 (str): First string.
+        str2 (str): Second string.
+
+    Returns:
+        float: Similarity percentage.
+    """
     matcher = difflib.SequenceMatcher(None, str1, str2)
-    
-    # Get the similarity ratio
-    ratio = matcher.ratio()
-    
-    # Convert to percentage
-    percentage = ratio * 100
-    
-    return percentage
-
-def assing_label(label, ref):
-  """
-  Taking into account that capture is not perfect, this function selects
-  the most similar label of the reference in that case.
-  
-  The index and the score
-  """
-  if label in ref:
-    return [ref.index(label), 100]
-  else:
-    maxi = 0
-    selected = ""
-    for seq in ref:
-      if maxi < similarity_percentage(label, seq):
-        maxi = similarity_percentage(label, seq)
-        selected = ref.index(seq)
-    return [selected, maxi]
+    return matcher.ratio() * 100
 
 
-fn = "/home/joel/data/outs_trust4/fqprova2_cdr3.out"
-result = {}
-with open(fn, 'r') as f:
-  goodq = 0
-  badq = 0
-  perfq = 0
-  tmp1 = [0, 0, 0]
-  tmp2 = [0, 0, 0]
-  translatable = 0
-  for line in f:
-    line = line.split()
-    barcode = line[0].split("_")[0]
-    
-    #I can only try to reconsrtuct those that have a usable label
-    sim1 = similarity_percentage(barcode[9:21], v1_linker1)
-    sim2 = similarity_percentage(barcode[30:43], v1_linker2)
-    
-    if (sim1 < 90 and sim2 < 90): #Només hi han 5 barcodes irreconstruibles
-      
-      #Opció confiant en que es correcte tot, guiat per lengths...
-      #print("Barcode: ", barcode, len(barcode), sim1, sim2)
-      badq +=1
+def assign_label(label, ref):
+    """
+    Assign the closest matching label from the reference list.
+
+    Args:
+        label (str): The label to match.
+        ref (list): List of reference labels.
+
+    Returns:
+        list: [index of the best match, similarity percentage].
+    """
+    if label in ref:
+        return [ref.index(label), 100]
     else:
-      if (sim1 == 100 and sim2 == 100):
-        perfq += 1 
-      else:
-        goodq += 1
-        
-      #Let's get the cls and try to identify 
-      cls1 = barcode[0:9]
-      cls2 = barcode[21:30]
-      cls3 = barcode[43:52]
-      # Find the index of the value
-      mycls = [cls1, cls2, cls3]
-      references = [A96_cell_key1, A96_cell_key2, A96_cell_key3]
-      a = 0
-      for i in range(len(mycls)) : 
-        try:
-          indx1 = references[i].index(mycls[i])
-          #indx2 = A96_cell_key2.index(cls2)
-          #indx3 = A96_cell_key3.index(cls3)
-          #cindx = label_sections_to_index(indx1+"-"+indx2+"-"+indx3)
-          #print(f"The index of {mycls[i]} is {indx1}")
-          tmp1[i] += 1
-          a += 1
-        except ValueError:
-          tmp2[i] += 1
-          #print(f"index not in the dictionary for label {mycls[i]}")
-          
-      #If all 3 reconstructed it is easy translation  
-      if a == 3:
-          translatable += 1
-          indx1 = A96_cell_key1.index(cls1)
-          indx2 = A96_cell_key2.index(cls2)
-          indx3 = A96_cell_key3.index(cls3)
-          cindx = label_sections_to_index(f"{indx1}-{indx2}-{indx3}")
-          result[barcode] = cindx
+        max_similarity = 0
+        selected_index = -1
+        for idx, seq in enumerate(ref):
+            similarity = similarity_percentage(label, seq)
+            if similarity > max_similarity:
+                max_similarity = similarity
+                selected_index = idx
+        return [selected_index, max_similarity]
+      
 
-        
-    
-  print("Fraction of good quality with matching CL1:", tmp1[0] / (tmp1[0]+tmp2[0]))
-  print("Fraction of good quality with matching CL2:", tmp1[1] / (tmp1[1]+tmp2[1]))
-  print("Fraction of good quality with matching CL3:", tmp1[2] / (tmp1[2]+tmp2[2]))
-  print("Number of Cells with easy translation:", translatable)
-  print("Fraction over Good Quality Cells with easy translation:", translatable/(tmp1[2]+tmp2[2]))
-  print("Fraction over All Cells with easy translation:", translatable/(badq+goodq+perfq))
-  print("Fraction of Low quality Linker:", badq/(badq+goodq+perfq))
-  print("Fraction of Good quality Linker:", goodq/(badq+goodq+perfq))
-  print("Fraction of Pefect quality Linker:", perfq/(badq+goodq+perfq))
-  print("Total Number of cells:", badq+goodq+perfq)
+def main():
+    # Argument parser setup
+    parser = argparse.ArgumentParser(description="Process barcode data and reconstruct cell identifiers.")
+    parser.add_argument("--input_file", required=True, help="Path to the input file containing barcode data.")
+    parser.add_argument("--output_file", required=True, help="Path to save the reconstructed output as a CSV file.")
+    parser.add_argument("--linker1", required=True, help="Expected sequence for linker 1.")
+    parser.add_argument("--linker2", required=True, help="Expected sequence for linker 2.")
+    parser.add_argument("--key1", required=True, help="Path to reference key file for cell key 1.")
+    parser.add_argument("--key2", required=True, help="Path to reference key file for cell key 2.")
+    parser.add_argument("--key3", required=True, help="Path to reference key file for cell key 3.")
+
+    args = parser.parse_args()
+
+    # Validate file paths
+    for file_arg in [args.input_file, args.key1, args.key2, args.key3]:
+        if not os.path.exists(file_arg):
+            raise FileNotFoundError(f"File not found: {file_arg}")
+
+    # Load reference keys
+    with open(args.key1, 'r') as f:
+        A96_cell_key1 = [line.strip() for line in f.readlines()]
+    with open(args.key2, 'r') as f:
+        A96_cell_key2 = [line.strip() for line in f.readlines()]
+    with open(args.key3, 'r') as f:
+        A96_cell_key3 = [line.strip() for line in f.readlines()]
+
+    # Read input file and process
+    result = {}
+    badq, goodq, perfq = 0, 0, 0
+    tmp1, tmp2 = [0, 0, 0], [0, 0, 0]
+    translatable = 0
+
+    with open(args.input_file, 'r') as f:
+        for line in f:
+            line = line.strip().split()
+            barcode = line[0].split("_")[0]
+
+            # Check linker similarity
+            sim1 = similarity_percentage(barcode[9:21], args.linker1)
+            sim2 = similarity_percentage(barcode[30:43], args.linker2)
+
+            if sim1 < 90 and sim2 < 90:
+                badq += 1
+                continue
+
+            if sim1 == 100 and sim2 == 100:
+                perfq += 1
+            else:
+                goodq += 1
+
+            # Process CLS labels
+            cls1, cls2, cls3 = barcode[0:9], barcode[21:30], barcode[43:52]
+            mycls = [cls1, cls2, cls3]
+            references = [A96_cell_key1, A96_cell_key2, A96_cell_key3]
+
+            matched_count = 0
+            for i, cls in enumerate(mycls):
+                try:
+                    references[i].index(cls)
+                    tmp1[i] += 1
+                    matched_count += 1
+                except ValueError:
+                    tmp2[i] += 1
+
+            if matched_count == 3:
+                translatable += 1
+                indx1 = A96_cell_key1.index(cls1)
+                indx2 = A96_cell_key2.index(cls2)
+                indx3 = A96_cell_key3.index(cls3)
+                cindx = label_sections_to_index(f"{indx1}-{indx2}-{indx3}")
+                result[barcode] = cindx
+
+    # Print statistics
+    total_cells = badq + goodq + perfq
+    print(f"Fraction of good quality with matching CL1: {tmp1[0] / (tmp1[0] + tmp2[0]):.2f}")
+    print(f"Fraction of good quality with matching CL2: {tmp1[1] / (tmp1[1] + tmp2[1]):.2f}")
+    print(f"Fraction of good quality with matching CL3: {tmp1[2] / (tmp1[2] + tmp2[2]):.2f}")
+    print(f"Number of Cells with easy translation: {translatable}")
+    print(f"Fraction over All Cells with easy translation: {translatable / total_cells:.2f}")
+    print(f"Total Number of cells: {total_cells}")
+
+    # Save results
+    df = pd.DataFrame(list(result.items()), columns=['Barcode', 'Cell_id'])
+    df.to_csv(args.output_file, index=False)
+    print(f"Number of reconstructed cells: {df.shape[0]}")
+    print(f"Results saved to: {args.output_file}")
 
 
-# dic to df
-df = pd.DataFrame(list(result.items()), columns=['Barcode', 'Cell_id'])
+if __name__ == "__main__":
+    main()
 
-# Export translated .csv
-#df.to_csv('translation_barcodes_070824.csv', index=False)
-
-print("Number of reconstructed cells:", df.shape[0])
 
 
