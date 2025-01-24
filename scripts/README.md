@@ -98,3 +98,12 @@ It require only to understand the read format. After many tries, in this project
 bc:0:52,r1:60:-1
 
 ## TRANSLATION TRUST4 FOR USAGE IN SINGLE-CELL
+
+To run this section it is only needed to extract the barcodes from the first column of TRUST4 outputs, as well as adding the keys for BD rhapsody linkers and CLS (as keky1,2 and 3). For more information, pleasew refer to the thesis document.
+Example run:
+
+```
+./barcode_processor.py --input_file input.txt --output_file output.csv \
+--linker1 expected_linker1 --linker2 expected_linker2 \
+--key1 ref_key1.txt --key2 ref_key2.txt --key3 ref_key3.txt
+```
