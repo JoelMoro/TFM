@@ -103,7 +103,7 @@ To run this section it is only needed to extract the barcodes from the first col
 Example run:
 
 ```
-./barcode_processor.py --input_file input.txt --output_file output.csv \
+./barcode_translate.py --input_file input.txt --output_file output.csv \
 --linker1 expected_linker1 --linker2 expected_linker2 \
 --key1 ref_key1.txt --key2 ref_key2.txt --key3 ref_key3.txt
 ```
