@@ -1,6 +1,6 @@
 # CODE USED EXPLANATION
 
-## MULTIPLEXING
+## DEMULTIPLEXING
 
 The idea of how to run this step was obtained from https://demultiplexing-doublet-detecting-docs.readthedocs.io/en/latest/.
 
