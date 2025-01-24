@@ -1,5 +1,5 @@
 # TFM: Innovative Statistical Frameworks for Enhanced V(D)J Repertoire Analysis 
-**By Joel Moro Borrego - MBDS - 2025 **
+**By Joel Moro Borrego - MBDS - 2025**
 
 ## Abstract
 Immune repertoire analysis is essential for understanding adaptive immune responses, yet reconstructing V(D)J sequences from whole transcriptome RNA-sequencing (WTA) data presents significant challenges due to the short-read nature of 3′ sequencing and platform-specific limitations. In this study, we developed and evaluated a robust computational framework to reconstruct T-cell and B-cell receptor sequences using TRUST4, alongside a custom pipeline to address barcode-to-index translation for BD Rhapsody data. Despite the flexibility and error-tolerant capabilities of the framework, limitations inherent to BD Rhapsody, including the prevalence of multiplets and the incompatibility of standard tools optimized for 10x Genomics, reduced the statistical power of V(D)J reconstruction. While approximately 12–15% of cells were reconstructed by TRUST4, only 3–7% of total cells in the input datasets were fully recovered after accounting for barcode complexities. 
