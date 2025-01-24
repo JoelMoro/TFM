@@ -1,0 +1,281 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+# 0. Libraries and functions
+
+```{r}
+
+library(Seurat)
+library(dplyr)
+library(tidyverse)
+library(ggplot2)
+library(scRepertoire)
+
+
+```
+
+## 0.2 Functions
+
+```{r}
+treat.seurat <- function(x, dim = 20){
+
+  x <-  x %>% NormalizeData(verbose = FALSE) %>% 
+    FindVariableFeatures(selection.method = "vst",nfeatures = 2000, verbose = FALSE) %>% 
+    ScaleData(assay = "RNA") %>% 
+    RunPCA(npc = dim) %>% RunUMAP(dims=1:dim) %>% RunTSNE(dims = 1:dim)
+  return(x)
+}
+```
+
+
+# 1. Load Data
+
+## 1.1 Metadata
+```{r}
+
+metadata <- read.table("../single_cell_meta_joel.csv", sep = ",", header = T)
+
+```
+
+## 1.2 Load batches
+
+```{r}
+
+obj_list <- list()
+for (i in c(1,2,3,4)) {
+  
+
+  rds_file <- list.files(paste0("../data/batch",i,"/A" ,i,"/"), "*_Seurat.rds")
+
+  
+  #First object A3
+  sc.object <- readRDS(paste0("../data/batch", i,"/A", i,"/", rds_file) )
+
+  # Add batch info
+  #Important in this case filter metadata by A3 I guess
+  sc.object@meta.data <- sc.object@meta.data %>% 
+    rownames_to_column("cell_id") %>% 
+    left_join(y =  metadata %>% filter(batch == paste0("A", i)), 
+                                            by = "Sample_Tag") %>% 
+    column_to_rownames("cell_id")
+
+    df <- sc.object@meta.data %>% as.data.frame() %>%  
+    group_by(Sample_Name, Cell_Type_Experimental) %>% summarise(N_cells = n()) %>% 
+    filter(!(Sample_Name %in% c("Multiplet", "Undetermined")))
+  
+  
+  freqs <- df %>%  ggplot(aes(Sample_Name, N_cells)) + 
+    geom_col(aes(fill = Sample_Name), color = "black") + 
+    facet_wrap(.~Cell_Type_Experimental, scales = "free") +
+    theme_bw() +
+    labs(fill = "Sample", y = "Number of Cells") +
+    theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+  print(df)
+  df %>% group_by(Cell_Type_Experimental) %>% 
+    summarise(N_cells = sum(N_cells)) %>% 
+    print()
+  
+  png(paste0("../figs/setA/FrequenciesWTA", i,"_14012025.png"), width = 1000, height = 900)
+  freqs %>% print()
+  dev.off()
+  
+  obj_list[[i]] <- sc.object
+
+}
+
+```
+
+
+# 2. QC
+
+#
+```{r}
+
+for (i in 1:length(obj_list)) {
+  sc.object <- obj_list[[i]]
+  DefaultAssay(sc.object) <-"RNA"
+  sc.object[["percent.mt"]] <- PercentageFeatureSet(sc.object, pattern = "^MT-") #Too low meaning  probably apoptosis
+  sc.object <- PercentageFeatureSet(sc.object, "RP[SL]", col.name = "percent.rb") # Too low also apoptosis
+  sc.object <- PercentageFeatureSet(sc.object, "^HB[^(P|E|S)]", col.name = "percent.hb") # Might want to check rbc contamination
+  
+  pdf(paste0("../figs/setA/QCmetrics_A", i,"_060824.pdf"), width = 15, height = 11)
+  #Visualize QC metric as an scatter plot
+  print(VlnPlot(sc.object, features = c("percent.hb", "nCount_RNA", "percent.mt", "percent.rb"),
+          pt.size = 0.5, ncol = 2, group.by = "Sample_Name"))
+  print(FeatureScatter(sc.object,"nCount_RNA", "percent.mt", group.by = "Sample_Name", pt.size = 0.5))
+  print(FeatureScatter(sc.object, "nCount_RNA", "nFeature_RNA", group.by = "Sample_Name", pt.size = 0.5))
+  
+  #Distribution of the total number of genes (or molecules) detected within a cell
+  print(sc.object@meta.data %>%
+    	ggplot(aes(color=Sample_Name, x=nFeature_RNA, fill= Sample_Name)) +
+    	geom_density(alpha = 0.2) +
+    	theme_classic() +
+    	scale_x_log10() +
+    	geom_vline(xintercept = 300, linetype = "dashed")+
+      geom_vline(xintercept = 3500, linetype = "dashed")+
+      labs(fill = "Sample Type")+
+      guides(color = FALSE))
+    
+  dev.off()
+  
+  #Subset
+  sc.object <- subset(sc.object, subset = nFeature_RNA>300  & nFeature_RNA<4000 &
+    percent.mt<10 & percent.rb > 5 )
+
+  
+  #Save object
+  obj_list[[i]] <- sc.object
+}
+
+
+
+
+```
+# 3. Treat Data
+
+```{r}
+
+for (i in c(1,2,3,4)) {
+  obj_list[[i]] <- treat.seurat(obj_list[[i]], dim = 30)
+  # I persoonally prefer UMAP
+  umap1 <- UMAPPlot(object = obj_list[[i]] , group.by = "Cell_Type_Experimental", split.by = "Sample_Name",
+           ncol = 5) + 
+    theme(
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+  
+  umap2 <- UMAPPlot(object = obj_list[[i]] , group.by = "cardiac", split.by = "Sample_Name",
+           ncol = 5) + 
+    theme(
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+  
+  umap_all <- UMAPPlot(object = obj_list[[i]] , group.by = "Cell_Type_Experimental", 
+                       ncol = 1) + 
+    theme(
+        axis.line = element_blank(),
+        axis.text.x = element_blank(),
+        axis.text.y = element_blank(),
+        axis.title = element_blank(),
+        axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+  
+  #Export both, I will make .svg from the  ones we want
+  # pdf(paste0("../figs/setA/Umaps_WTA", i,"_060824.pdf"), width = 15, height = 11)
+  # print(umap1)
+  # print(umap2)
+  # print(umap_all)
+  # dev.off()
+}
+
+
+# I persoonally prefer UMAP
+umap <- UMAPPlot(object = sc.object, group.by = "Cell_Type_Experimental", split.by = "Sample_Name",
+         ncol = 5) + 
+  theme(
+      axis.line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(),
+      axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+
+umap <- UMAPPlot(object = sc.object, group.by = "cardiac", split.by = "Sample_Name",
+         ncol = 5) + 
+  theme(
+      axis.line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(),
+      axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+
+umap_all <- UMAPPlot(object = sc.object, group.by = "Cell_Type_Experimental", 
+                     ncol = 1) + 
+  theme(
+      axis.line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(),
+      axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+
+#Export both, I will make .svg from the  ones we want
+pdf(paste0("../figs/UMAPS_A3_29APR_290424.pdf"), width = 15, height = 11)
+print(umap)
+print(umap_all)
+dev.off()
+
+
+obj_list[[i]] <- treat.seurat(obj_list[[i]], dim = 30)
+ElbowPlot(obj_list[[i]])
+```
+
+
+# 4. Integration
+
+```{r}
+# I will use stacas, since I can use semi-supervised integration
+
+#remotes::install_github("carmonalab/STACAS")
+library(STACAS)
+object_integrated_ss <- obj_list %>%
+  Run.STACAS(dims = 1:15, anchor.features = 2000, cell.labels = "Cell_Type_Experimental")
+
+object_integrated_ss <- object_integrated_ss %>% RunUMAP(dims=1:15)
+  
+saveRDS(object_integrated_ss, "../all_batch_wta_060824.Rds")
+```
+
+
+# 5. Trying correct mutliplets
+
+```{r}
+
+object_integrated_ss <- readRDS("../all_batch_wta_060824.Rds")
+
+UMAPPlot(object = object_integrated_ss, split.by = "batch", 
+         group.by = "Cell_Type_Experimental",
+
+                     ncol = 2) + 
+  theme(
+      axis.line = element_blank(),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(), title = element_blank(),
+      axis.ticks = element_blank()) + coord_flip()+ scale_x_reverse()
+
+
+
+#Extract multiplet <- 
+multiplet <- object_integrated_ss[, object_integrated_ss$Sample_Name %in%
+                                    c("Multiplet", "Undetermined")]
+object_integrated_ss <- object_integrated_ss[, !(object_integrated_ss$Sample_Name %in% 
+                                                   c("Multiplet", "Undetermined"))]
+#Weird, but let's try
+anchors <- FindTransferAnchors(reference = object_integrated_ss , query = multiplet)
+predictions <- TransferData(anchorset = anchors, refdata = object_integrated_ss$Sample_Tag, 
+                            dims = 1:30)
+multiplet <- AddMetaData(multiplet, metadata = predictions)
+
+multiplet@meta.data %>% ggplot(aes(prediction.score.max, fill = Sample_Tag), alpha = 0.5) +
+  geom_density() +
+  facet_wrap(.~ predicted.id) +
+  theme_bw()
+  
+multiplet@meta.data$Sample_Name %>% unique()
+
+multiplet@meta.data %>% filter(prediction.score.max > 0.7) %>% nrow()
+
+```
+
+
+
+
+
+

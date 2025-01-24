@@ -1,0 +1,362 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# 0 Libraries
+```{r}
+
+library(Seurat)
+library(dplyr)
+library(ggplot2)
+library(scRepertoire)
+library(tidyverse)
+#ggraph needs to be loaded due to issues with ggplot
+library(ggraph)
+
+# sc.object.b <- readRDS("../batch3/B3/_2_all_Seurat.rds")
+# 
+# sc.object.b@meta.data <- left_join(sc.object.b@meta.data, metadata %>% filter(batch == "A3") 
+#                                    %>% select(Sample_Tag, cardiac),
+#                                    by = "Sample_Tag")
+# 
+# #how Many cell type in each sample
+# table(sc.object.b$Cell_Type_Experimental,  sc.object.b$Sample_Name)
+# 
+# #Filter out those with no VDJ counts
+# sc.object.b <- sc.object.b[, sc.object.b$Total_VDJ_Read_Count > 0]
+```
+
+# 1. Load data
+
+```{r}
+
+#List to store each batch and metadata
+mycontig_list <- list()
+metalist <- list()
+
+#Load all batches
+for (i in c(1,2,3,4))  {
+  
+  #Metadata cardiac
+  cardiac <- read.table("../single_cell_meta_joel.csv", sep = ",", header = T) %>% 
+    filter(batch == paste0("A",i))
+  cardiac %>% select(Sample_Tag, cardiac, timepoint) %>% distinct %>% arrange(Sample_Tag)
+  
+  if (i != 3) {let <- "b"} else { let <- "B"}
+  tags_file <- list.files(paste0("../data/batch",i,"/", let,i,"/"), "*Sample_Tag_Calls.csv")
+  contigs_file <- list.files(paste0("../data/batch",i,"/", let,i,"/"), "*VDJ_Dominant_Contigs_AIRR.tsv")
+  #Metadata cardiac
+  meta <- read.csv(paste0("../data/batch", i, "/", let, i,"/", tags_file),
+                    sep = ",", header = T, skip = 7) %>% 
+    dplyr::rename(cell_id = Cell_Index)
+  meta <- left_join(meta, cardiac)
+  prova <- read.csv(paste0("../data/batch",i, "/",let , i,"/",contigs_file),
+                  sep = "\t", header = T) %>% 
+  select(-cell_type_experimental, cell_type_experimental)
+  
+  meta <- left_join(meta, prova %>% dplyr::select(cell_id, cell_type_experimental))
+  
+  contig.list <- loadContigs(input = prova, 
+                           format = "BD")
+  
+  contig.list[[1]] <- left_join(contig.list[[1]], meta %>% rename(barcode = cell_id) %>% 
+                                distinct) %>% 
+  filter(!(Sample_Name %in% c("Multiplet", "Undetermined")))
+  
+  #Plot on number of cells
+  freqs <- table(contig.list[[1]]$Sample_Name, contig.list[[1]]$cell_type_experimental) %>% 
+    as.data.frame %>% ggplot(aes(Var1, Freq)) + 
+    geom_col(aes(fill = Var1), color = "black") + 
+    facet_wrap(.~Var2, scales = "free") +
+    theme_bw() +
+    labs(fill = "Sample", y = "Number of Cells") +
+    theme(axis.text.x = element_blank(), axis.title.x = element_blank())
+
+  ggsave(file = paste0("../figs/FrequenciesVDJ_batch", i,".svg"), width = 11, height = 11,
+         freqs)
+
+  #Maybe I should also export it in xls or smth...
+  table(contig.list[[1]]$sample_id, contig.list[[1]]$Sample_Name) %>% print()
+  mycontig_list[[i]] <- contig.list[[1]]
+  metalist[[i]] <- meta
+}
+
+
+```
+
+# 2. T cell and Bcell Clones
+
+
+
+## 2.1 Initial exploration 
+
+```{r}
+
+combined_list <- list()
+colorblind_vector <- hcl.colors(n=7, palette = "inferno", fixup = TRUE)
+for (i in 1:length(mycontig_list) ) {
+  
+  #Prepare needs
+  mylist <- mycontig_list[[i]]
+  meta <- metalist[[i]]
+  mylist <- split(mylist, mylist$Sample_Name)
+  
+  #Exclude the samples that do not have enough data
+  for (sample in names(mylist)) {
+    tmp <- mylist[[sample]]
+    if (mylist[[sample]] %>% nrow() < 10) {mylist[[sample]] <- NULL }
+  }
+  
+  #Care to use the propper one acording to BCR or TCR
+  combined <- list()
+  combined[["bcr"]] <- combineBCR(mylist, 
+                               samples = names(mylist),
+                               removeNA = FALSE, 
+                               removeMulti = FALSE, 
+                               filterMulti = FALSE)
+  combined[["tcr"]] <- combineTCR(mylist, 
+                               samples = mylist %>% names(),
+                               removeNA = FALSE, 
+                               removeMulti = FALSE, 
+                               filterMulti = FALSE)
+  #Add cardiac metadata
+  for(com in names(combined)) {
+    for (sam in names(combined[[com]])) {
+      combined[[com]][[sam]] <- combined[[com]][[sam]] %>% 
+        mutate(cell_id = sub(pattern = paste0(sample, "_"),
+                             x = barcode, replacement = "") %>% 
+                   as.numeric) %>% left_join(meta, by = "cell_id")
+    }
+    t <- clonalQuant(combined[[com]], 
+                  cloneCall="gene", 
+                  chain = "both", 
+                  scale = TRUE, exportTable = T) 
+    t <- left_join(t %>% dplyr::rename(Sample_Name = values),
+                     meta %>% select(Sample_Name, cardiac, sample_id, timepoint) %>% distinct)
+    #Plot on uniques and compare:
+    p1 <- clonalQuant(combined[[com]], 
+                  cloneCall="gene", 
+                  chain = "both", 
+                  scale = TRUE) 
+    #Plot with cardiac information
+    p2 <- ggplot(t, aes(timepoint %>% as.character, scaled, fill = cardiac)) +
+        geom_col(color = "black") +
+        theme_bw() +
+        facet_wrap(sample_id~., scales = "free_y") + 
+        labs(y = "Percent of Unique Clones", fill = "Cardiac Status", 
+             x = "Samples", title = paste(com, "cells")) +
+        theme(axis.text.x  = element_text(angle = 90))
+      #Plot the abundance
+    p3 <- clonalAbundance(combined[[com]], 
+                  cloneCall = "gene", 
+                  scale = F)
+    p4 <- clonalProportion(combined[[com]], cloneCall = "gene",
+                   clonalSplit = c(10, 100, 1000, 10000, 30000, 1e+05)) 
+    #Plot diversity
+    p5 <- clonalDiversity(combined[[com]], cloneCall = "gene",
+                          palette = "Pastel 1")
+    p6 <- clonalDiversity(combined[[com]], cloneCall = "gene", group.by = "sample_id",
+                          palette = "Pastel 1")
+    
+    #Get summary
+    pdf(paste0("../figs/VDJsummary_", com,"_B",i,"_03082024.pdf"), width = 15, height = 11)
+    print(p1)
+    print(p2)
+    print(p3)
+    print(p4)
+    print(p5)
+    print(p6)
+    #Maybe we can do it better
+    for ( num in c(1,3,5,7,9,11)) {
+      if (num < 10) { pref <- "0"} else {pref <- ""}
+      if ( (num+1) < 10) { pref2 <- "0"} else {pref2 <- ""}
+      
+      clonalCompare(combined[[com]],
+                relabel.clones = F, 
+                top.clones = 10, 
+                samples = c(paste0("SampleTag", pref,num,"_hs"), 
+                            paste0("SampleTag", pref2,num+1,"_hs")),
+                cloneCall="gene",
+                graph = "alluvial") %>% print()
+    }
+    dev.off()
+  }
+  combined_list[[i]] <- combined
+}
+
+png(paste0("../figs/batch1_figure14.png"), width = 1350, height = 900)
+clonalQuant(combined_list[[1]][["tcr"]], 
+                  cloneCall="gene", 
+                  chain = "both", 
+                  scale = TRUE)  +
+  theme(axis.title.y = element_text(size = 21, face = "bold"),
+        axis.text.y = element_text(size = 21, face = "bold"),
+        legend.position = "none", axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 16, face = "bold", , angle = 90))
+dev.off()
+
+png(paste0("../figs/batch1_figure15.png"), width = 1300, height = 900)
+clonalQuant(combined_list[[1]][["bcr"]], 
+                  cloneCall="gene", 
+                  chain = "both", 
+                  scale = TRUE)  +
+  theme(axis.title.y = element_text(size = 21, face = "bold"),
+        axis.text.y = element_text(size = 21, face = "bold"),
+        legend.position = "none", axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 16, face = "bold", angle = 90))
+dev.off()
+
+png(paste0("../figs/batch1_figure16.png"), width = 1200, height = 900)
+clonalProportion(combined_list[[1]][["tcr"]], cloneCall = "gene",
+                   clonalSplit = c(10, 100, 1000, 10000, 30000, 1e+05)) +
+  theme(axis.title.y = element_text(size = 21, face = "bold"),
+        axis.text.y = element_text(size = 19), legend.text = element_text(size = 19),
+        legend.title = element_text(size = 19, face = "bold"),
+        legend.position = "top", axis.title.x = element_blank(),
+        axis.text.x = element_text(size = 15))
+dev.off()
+```
+
+# 3. Seurat
+
+```{r}
+
+#Load all batches
+for (i in c(1,2,3,4))  {
+  
+
+  #Seurat file
+  if (i != 3) {let <- "b"} else { let <- "B"}
+  seurat_file <- list.files(paste0("../data/batch",i,"/", let,i,"/"), "*Seurat.rds")
+  
+  #Load all seurat and metadata
+  scdata <- readRDS(paste0("../data/batch",i,"/",let,i, "/", seurat_file) )
+  metadata <- metalist[[i]]
+  scdata@meta.data <- scdata@meta.data %>% rownames_to_column("cell_id") %>% 
+    left_join(y = (metadata %>% mutate(cell_id = as.character(cell_id)))) %>%  
+    distinct %>% 
+    column_to_rownames("cell_id")
+  scdata@meta.data %>% View
+
+  combined <- combined_list[[i]]
+  for (a in names(combined) ) {
+    for (b in names(combined[[a]])) {
+      combined[[a]][[b]] <- combined[[a]][[b]] %>% mutate(barcode = cell_id)
+    }
+  }
+  
+
+  
+  #combine the previous output with the seurat
+  scdata <- combineExpression(c(combined[["tcr"]], combined[["bcr"]]),
+                           scdata, 
+                           cloneCall="nt", 
+                           group.by = "Sample_Name",  #Provar cardiac
+                           proportion = F,
+                          cloneSize=c(Single=1, Small=5,
+                                      Medium=20, Large=100, Hyperexpanded=500))
+
+  colorblind_vector <- hcl.colors(n=7, palette = "inferno", fixup = TRUE)
+  pdf(paste0("../figs/SeuratPlots_Batch",i,"_05082024.pdf"), width = 15, height = 11)
+  Seurat::DimPlot(scdata, group.by = "Cell_Type_Experimental") %>% print()
+  Seurat::DimPlot(scdata, group.by = "cloneSize") +
+      scale_color_manual(values=rev(colorblind_vector[c(1,3,4,5,7)])) %>% print()
+  
+  clonalOccupy(scdata, proportion = T,
+                x.axis = "Sample_Name") %>% print()
+  
+  Idents(scdata) <- "Cell_Type_Experimental"
+  clonalOverlay(scdata, 
+              reduction = "tsne", 
+              freq.cutpoint = 1, 
+              bins = 10, 
+              facet.by = "Sample_Name") %>% print()
+  clonalNetwork(scdata, 
+              reduction = "tsne", 
+              group.by = "Cell_Type_Experimental",
+              filter.clones = NULL,
+              filter.identity = NULL,
+              cloneCall = "gene") %>% print()
+  
+  dev.off()
+}
+
+
+```
+
+# 4. Visualisations
+
+
+```{r}
+
+Idents(scdata) <- "Cell_Type_Experimental"
+png(paste0("../figs/batch1_figure17.png"), width = 1200, height = 900)
+clonalOverlay(scdata[, scdata$cell_type_experimental %in% c("T_CD4_memory", "T_CD8_memory",
+                                                            "B", "T_CD8_naive", "T_CD4_naive",
+                                                            "T_gamm_delta")], 
+              reduction = "tsne", 
+              freq.cutpoint = 1, 
+              bins = 10, 
+              facet.by = "Sample_Name") +
+  theme(legend.position = "bottom", legend.text = element_text(size = 15, face = "bold"),
+        legend.title = element_text(size = 19, face = "bold"), axis.title = element_text(size = 21, face = "bold"), 
+        strip.text = element_text(size = 17, face = "bold")
+        
+        )
+dev.off()
+```
+
+```{r}
+
+
+#No Identity filter
+clonalNetwork(scdata, 
+              reduction = "tsne", 
+              group.by = "Cell_Type_Experimental",
+              filter.clones = NULL,
+              filter.identity = NULL,
+              cloneCall = "gene")
+```
+
+
+
+```{r}
+
+alluvialClones(scdata, 
+               cloneCall = "gene", 
+               y.axes = c("sample_id", "timepoint"), 
+               color = c("TRAV13-2*01.TRAJ33*01.TRAC_TRBV7-8*01.NA.TRBJ2-5*01.TRBC2")) + 
+    scale_fill_manual(values = c("grey", colorblind_vector[3]))
+
+
+```
+
+
+```{r}
+library(circlize)
+library(scales)
+
+circles <- getCirclize(scdata, 
+                       group.by = "Sample_Name")
+
+#Just assigning the normal colors to each cluster
+grid.cols <- hue_pal()(length(unique(scdata$Sample_Name)))
+names(grid.cols) <- unique(scdata$Sample_Name)
+
+#Graphing the chord diagram
+p <- chordDiagram(circles, self.link = 1, grid.col = grid.cols)
+```
+
+```{r}
+subset <- subset(scdata, cardiac == "yes")
+
+circles <- getCirclize(subset, group.by = "Sample_Name", proportion = TRUE)
+
+grid.cols <- (scales::hue_pal())(length(unique(subset@active.ident)))
+names(grid.cols) <- levels(subset@active.ident)
+
+chordDiagram(circles, self.link = 1, grid.col = grid.cols, directional = 1, direction.type = "arrows",
+    link.arr.type = "big.arrow")
+```
+
