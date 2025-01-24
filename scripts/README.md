@@ -1,4 +1,4 @@
-# Code explanation
+# CODE USED EXPLANATION
 
 
 ## Running TRUST4 for BD rhapsody
@@ -11,3 +11,5 @@
 
 It require only to understand the read format. After many tries, in this project the only way to identify propperly the barcode is to go directly to the fastQ files retrieved by BD and checkk for positions in readFormat:
 bc:0:52,r1:60:-1
+
+## TRANSLATION TRUST4 FOR USAGE IN SINGLE-CELL
