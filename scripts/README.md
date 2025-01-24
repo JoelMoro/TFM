@@ -84,6 +84,8 @@ chmod +x scsplit_pipeline.sh #Make sure the script can be executed
 ./scsplit_pipeline.sh --barcodes /path/to/barcodes.tsv --bam /path/to/bam.bam --outdir /path/to/output --n 12 --vcf /path/to/vcf --fasta /path/to/fasta
 
 ````
+
+With the output you will be able to identify to which samples your cells are related to and modify it manually in the metadata of the seurat object. This will enable more cells for the TRUST4 step.
 ## Running TRUST4 for BD rhapsody
 
 **Example Call**
