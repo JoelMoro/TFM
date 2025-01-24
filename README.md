@@ -11,7 +11,7 @@ Our results demonstrate that while WTA can serve as a viable source for immune r
  ## Github Organization
 
 ### Code:
-Contains the stand alone code as well as the code separated by parts.
+Contains the code with explanation and how to run sections.
 
 ### Supplementary Figures:
 Contains the supplementary figures that could not be included in the main text. Additionaly, contains the figures of the text.
